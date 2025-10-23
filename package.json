@@ -1,0 +1,20 @@
+{
+  "name": "metaapi-mcp-server",
+  "description": "MCP server for MetaAPI trading platform",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "dependencies": {
+    "metaapi.cloud-sdk": "^29.0.0",
+    "dotenv": "^16.0.3",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "example:rpc": "node -r dotenv/config ./example.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
