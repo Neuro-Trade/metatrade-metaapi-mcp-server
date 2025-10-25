@@ -14,7 +14,6 @@ import { createRequire } from 'module';
 import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
-import { randomUUID } from 'crypto';
 
 // Load environment variables
 dotenv.config();
@@ -913,7 +912,7 @@ function createMCPServer() {
 });
 
 // Handle tool calls
-newServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
 
     try {
@@ -1701,7 +1700,7 @@ newServer.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 // List resources
-newServer.setRequestHandler(ListResourcesRequestSchema, async () => {
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
     try {
         const response = await metaApi.metatraderAccountApi.getAccountsWithClassicPagination();
         const accounts = response.items || [];
@@ -1747,7 +1746,7 @@ newServer.setRequestHandler(ListResourcesRequestSchema, async () => {
 });
 
 // Read resource
-newServer.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
 
     try {
@@ -1833,7 +1832,7 @@ newServer.setRequestHandler(ReadResourceRequestSchema, async (request) => {
 });
 
 // List prompts
-newServer.setRequestHandler(ListPromptsRequestSchema, async () => {
+server.setRequestHandler(ListPromptsRequestSchema, async () => {
     return {
         prompts: [
             {
@@ -1889,7 +1888,7 @@ newServer.setRequestHandler(ListPromptsRequestSchema, async () => {
 });
 
 // Get prompt
-newServer.setRequestHandler(GetPromptRequestSchema, async (request) => {
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
 
     try {
@@ -2005,33 +2004,14 @@ async function main() {
         res.json({ status: 'ok', server: 'MetaAPI MCP Server' });
     });
 
-    // Store active transports by session ID
-    const transports = new Map();
-
-    // SSE endpoint - establishes the SSE stream
+    // SSE endpoint for MCP
     app.get('/sse', async (req, res) => {
-        logger.info('New SSE connection request');
+        logger.info('New SSE connection established');
         
         try {
-            // Generate a session ID first
-            const sessionId = randomUUID();
-            
-            // Create new transport with session-specific POST endpoint
-            const transport = new SSEServerTransport(`/message/${sessionId}`, res);
-            
-            // Create and connect new server instance
-            const server = createMCPServer();
-            await server.connect(transport); // This calls transport.start() automatically
-            
-            // Store transport by session ID for routing POST messages
-            transports.set(sessionId, transport);
-            logger.info(`SSE connection established with session: ${sessionId}`);
-            
-            // Clean up when connection closes
-            transport.onclose = () => {
-                logger.info(`SSE connection closed: ${sessionId}`);
-                transports.delete(sessionId);
-            };
+            const transport = new SSEServerTransport('/message', res);
+            await server.connect(transport);
+            logger.info('SSE client connected successfully');
         } catch (error) {
             logger.error('SSE connection error:', error);
             if (!res.headersSent) {
@@ -2040,27 +2020,10 @@ async function main() {
         }
     });
 
-    // Message endpoint - receives POST messages from client (with session ID in path)
-    app.post('/message/:sessionId', async (req, res) => {
-        const sessionId = req.params.sessionId;
-        logger.info(`POST /message/${sessionId}`);
-        logger.info(`Request body: ${JSON.stringify(req.body)}`);
-        
-        const transport = transports.get(sessionId);
-        if (!transport) {
-            logger.error(`Unknown session: ${sessionId}`);
-            return res.status(404).json({ error: 'Session not found' });
-        }
-        
-        try {
-            await transport.handlePostMessage(req, res, req.body);
-        } catch (error) {
-            logger.error('POST message error:', error);
-            logger.error('Error stack:', error.stack);
-            if (!res.headersSent) {
-                res.status(500).json({ error: error.message });
-            }
-        }
+    // Message endpoint for client requests
+    app.post('/message', async (req, res) => {
+        // The SSE transport will handle this
+        res.status(200).json({ received: true });
     });
 
     app.listen(PORT, () => {

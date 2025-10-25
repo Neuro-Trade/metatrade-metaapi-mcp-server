@@ -55,14 +55,37 @@ Make sure you have at least one MetaTrader account provisioned in MetaAPI. You'l
 
 ### Running the Server
 
-**Start the server (stdio mode):**
+**Start the HTTP/SSE server:**
 ```bash
 npm start
+# or
+./start_server.sh
+```
+
+The server will start on port 3333 by default. You'll see:
+```
+[INFO] MetaAPI MCP Server running on http://localhost:3333
+[INFO] SSE endpoint: http://localhost:3333/sse
+[INFO] Health check: http://localhost:3333/health
+```
+
+**Custom port:**
+```bash
+PORT=8080 npm start
 ```
 
 **Development mode with auto-reload:**
 ```bash
 npm run dev
+```
+
+**Test the server:**
+```bash
+# Check health
+curl http://localhost:3333/health
+
+# Run test suite
+node test_client.js
 ```
 
 ### Connecting from MCP Clients
@@ -78,19 +101,37 @@ Add to your Claude Desktop configuration file:
 {
   "mcpServers": {
     "metaapi": {
-      "command": "node",
-      "args": ["/path/to/metaapi-mcp-server/src/index.js"],
-      "env": {
-        "METAAPI_TOKEN": "your_metaapi_token_here"
-      }
+      "url": "http://localhost:3333/sse"
     }
   }
 }
 ```
 
-#### Other MCP Clients
+**Note:** Make sure to start the server before launching Claude Desktop.
 
-The server uses stdio transport by default, which is compatible with any MCP client that supports stdio connections.
+#### Programmatic MCP Client
+
+```javascript
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+
+const transport = new SSEClientTransport(
+    new URL('http://localhost:3333/sse')
+);
+
+const client = new Client(
+    { name: 'my-client', version: '1.0.0' },
+    { capabilities: {} }
+);
+
+await client.connect(transport);
+
+// Use the client
+const tools = await client.listTools();
+console.log('Available tools:', tools.tools);
+
+await client.close();
+```
 
 ## Available Tools
 

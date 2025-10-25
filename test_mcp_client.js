@@ -1,84 +1,56 @@
 #!/usr/bin/env node
 
 /**
- * Test MCP Client to reproduce the JSON parsing error
+ * Test MCP Client using HTTP/SSE transport
  */
 
-import { spawn } from 'child_process';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3333';
 
 async function testMCPServer() {
     console.log('Starting MCP server test...\n');
+    console.log(`Connecting to ${SERVER_URL}/sse\n`);
 
-    const server = spawn('npm', ['start'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        cwd: __dirname
-    });
+    const transport = new SSEClientTransport(new URL(`${SERVER_URL}/sse`));
 
-    let response = '';
-    let errorOutput = '';
-
-    server.stdout.on('data', (data) => {
-        response += data.toString();
-        console.log('SERVER OUTPUT:', data.toString());
-    });
-
-    server.stderr.on('data', (data) => {
-        errorOutput += data.toString();
-        console.error('SERVER ERROR:', data.toString());
-    });
-
-    // Wait for server to start
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Send list tools request
-    const request = {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'tools/list',
-        params: {}
-    };
-
-    console.log('Sending request:', JSON.stringify(request));
-    server.stdin.write(JSON.stringify(request) + '\n');
-
-    // Wait for response
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    console.log('\n=== RAW RESPONSE ===');
-    console.log(response);
-
-    console.log('\n=== ATTEMPTING TO PARSE ===');
-    try {
-        // Try to parse each line as JSON
-        const lines = response.split('\n').filter(l => l.trim());
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            console.log(`\nLine ${i + 1} (length ${line.length}):`);
-            console.log('First 100 chars:', line.substring(0, 100));
-
-            try {
-                const parsed = JSON.parse(line);
-                console.log('✅ Valid JSON');
-                if (parsed.result && parsed.result.tools) {
-                    console.log(`Found ${parsed.result.tools.length} tools`);
-                }
-            } catch (e) {
-                console.log('❌ Parse error:', e.message);
-                console.log('Char at position 5:', line.charCodeAt(5), `(${line.charAt(5)})`);
-                console.log('First 20 chars:', JSON.stringify(line.substring(0, 20)));
-            }
+    const client = new Client(
+        {
+            name: 'metaapi-test-client',
+            version: '1.0.0',
+        },
+        {
+            capabilities: {},
         }
-    } catch (e) {
-        console.error('Error:', e);
-    }
+    );
 
-    server.kill();
-    process.exit(0);
+    try {
+        await client.connect(transport);
+        console.log('✅ Connected to MCP server\n');
+
+        // Send list tools request
+        console.log('Requesting tools list...');
+        const result = await client.listTools();
+        
+        console.log('\n=== RESPONSE ===');
+        console.log(JSON.stringify(result, null, 2));
+
+        if (result.tools) {
+            console.log(`\n✅ Found ${result.tools.length} tools`);
+            result.tools.forEach((tool, i) => {
+                console.log(`${i + 1}. ${tool.name}`);
+            });
+        }
+
+        console.log('\n✅ Test completed successfully!');
+    } catch (error) {
+        console.error('❌ Error:', error.message);
+        console.error(error);
+        process.exit(1);
+    } finally {
+        await client.close();
+    }
 }
 
 testMCPServer().catch(console.error);

@@ -5,15 +5,14 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+
+const SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3333';
 
 async function validateTools() {
     console.log('Validating Phase 1 Extended MCP Server...\n');
 
-    const transport = new StdioClientTransport({
-        command: 'node',
-        args: ['src/index.js'],
-    });
+    const transport = new SSEClientTransport(new URL(`${SERVER_URL}/sse`));
 
     const client = new Client(
         {

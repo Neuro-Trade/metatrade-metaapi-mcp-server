@@ -6,9 +6,10 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
 const ACCOUNT_ID = 'b7320f60-ef3c-4589-a692-c6b39f76c313';
+const SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3333';
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -17,10 +18,7 @@ function sleep(ms) {
 async function testMarketOrderTools() {
     console.log('🧪 Market Order Tools - Comprehensive Tests\n');
 
-    const transport = new StdioClientTransport({
-        command: 'node',
-        args: ['src/index.js'],
-    });
+    const transport = new SSEClientTransport(new URL(`${SERVER_URL}/sse`));
 
     const client = new Client(
         {

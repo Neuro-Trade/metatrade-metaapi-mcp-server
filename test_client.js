@@ -2,27 +2,15 @@
 
 // Test client to verify MCP server functionality
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { spawn } from 'child_process';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
-async function testServer() {
-    console.log('🧪 Starting MCP server test...\n');
+const SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3333';
 
-    // Spawn the server process
-    const serverProcess = spawn('node', ['src/index.js'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    // Capture stderr for logs
-    serverProcess.stderr.on('data', (data) => {
-        console.log('📋 Server log:', data.toString().trim());
-    });
-
-    // Create client transport
-    const transport = new StdioClientTransport({
-        command: 'node',
-        args: ['src/index.js'],
-    });
+async function testMCPConnection() {
+    console.log('Creating SSE transport...');
+    const transport = new SSEClientTransport(
+        new URL('http://localhost:3333/sse')
+    );
 
     const client = new Client(
         {
@@ -81,10 +69,10 @@ async function testServer() {
         console.log('\n🎉 All tests completed!');
     } catch (error) {
         console.error('❌ Test failed:', error);
+        process.exit(1);
     } finally {
         await client.close();
-        serverProcess.kill();
     }
 }
 
-testServer().catch(console.error);
+testMCPConnection().catch(console.error);
