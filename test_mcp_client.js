@@ -32,7 +32,7 @@ async function testMCPServer() {
         // Send list tools request
         console.log('Requesting tools list...');
         const result = await client.listTools();
-        
+
         console.log('\n=== RESPONSE ===');
         console.log(JSON.stringify(result, null, 2));
 
