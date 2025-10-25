@@ -1,388 +1,172 @@
 # MetaAPI MCP Server
 
-A Model Context Protocol (MCP) server that provides comprehensive access to MetaAPI trading platform capabilities. This server exposes MetaTrader account management, trading operations, market data, and streaming price feeds through the MCP protocol.
+A Model Context Protocol (MCP) server that provides AI assistants like Claude with direct access to MetaAPI trading platform. Trade forex, stocks, and commodities through natural language conversations.
 
-## Features
+## 🚀 Quick Start
 
-### Tools (Functions)
-- **Account Management**: List accounts, get account state, view account information
-- **Trading Operations**: Place market/limit orders, close positions, modify positions, cancel orders
-- **Market Data**: Get symbol prices, calculate margin requirements, retrieve server time
-- **History & Reporting**: View positions, orders, historical orders, and deals
-- **Real-time Streaming**: Subscribe to price updates for symbols
+```bash
+# Install dependencies
+npm install
 
-### Resources
-Expose account metadata, positions, and orders as MCP resources:
+# Create .env file with your MetaAPI token
+echo "METAAPI_TOKEN=your_token_here" > .env
+
+# Start the server
+npm start
+```
+
+Then configure Claude Desktop (see [Getting Started Guide](docs/GETTING_STARTED.md)).
+
+## ✨ Features
+
+### 32 Trading Tools
+- **Account Management** - View balances, equity, margin, and account details
+- **Market Data** - Real-time prices, historical candles, tick data
+- **Order Management** - Market orders, limit orders, stop orders
+- **Position Management** - Modify, close, or monitor positions
+- **Trading History** - View past orders, deals, and performance
+- **Risk Management** - Calculate margins, set stop losses
+
+### 4 MCP Resources
 - `metaapi://accounts` - All trading accounts
 - `metaapi://accounts/{accountId}` - Specific account details
-- `metaapi://accounts/{accountId}/positions` - Account positions
-- `metaapi://accounts/{accountId}/orders` - Account pending orders
+- `metaapi://accounts/{accountId}/positions` - Open positions
+- `metaapi://accounts/{accountId}/orders` - Pending orders
 
-### Prompts
-Pre-configured workflows for common tasks:
-- `account_overview` - Comprehensive account analysis
+### 3 Smart Prompts
+- `account_overview` - Complete account analysis
 - `risk_check` - Pre-trade risk assessment
-- `trading_summary` - Recent trading activity summary
+- `trading_summary` - Recent activity summary
 
-## Installation
+## 📖 Documentation
 
-### Prerequisites
+- **[Getting Started](docs/GETTING_STARTED.md)** - Installation and setup
+- **[Tools Reference](docs/TOOLS_REFERENCE.md)** - All 32 tools documented
+- **[Usage Examples](docs/EXAMPLES.md)** - Practical trading examples
+- **[Configuration](docs/CONFIGURATION.md)** - Advanced configuration options
+
+## 🎯 Example Usage with Claude
+
+Once configured, you can ask Claude:
+
+```
+"List my trading accounts"
+"What's the current price of EURUSD?"
+"Show my open positions"
+"Buy 0.1 lots of EURUSD with stop loss at 1.0850"
+"Get the last 50 hourly candles for GBPUSD"
+```
+
+See [EXAMPLES.md](docs/EXAMPLES.md) for more usage patterns.
+
+## 🏗️ Architecture
+
+```
+MetaAPI MCP Server (HTTP/SSE)
+├── Express Server (Port 3333)
+├── MCP Server Instance
+│   ├── 32 Trading Tools
+│   ├── 4 Resources
+│   └── 3 Prompts
+└── MetaAPI SDK Client
+    └── Your MT4/MT5 Accounts
+```
+
+## 📋 Prerequisites
+
 - Node.js >= 18.0.0
-- MetaAPI account and API token
-- Provisioned MetaTrader accounts in MetaAPI
+- MetaAPI account ([Sign up](https://metaapi.cloud/))
+- API token from MetaAPI dashboard
+- At least one MT4/MT5 account provisioned in MetaAPI
 
-### Setup
+## 🔧 Installation & Setup
 
-1. **Install dependencies:**
+See the complete [Getting Started Guide](docs/GETTING_STARTED.md) for detailed instructions.
+
+### Quick Setup
+
+1. Clone/download this repository
+2. Install dependencies: `npm install`
+3. Create `.env` file with your METAAPI_TOKEN
+4. Start server: `npm start`
+5. Configure Claude Desktop (see guide)
+
+## 💡 Available Commands
+
 ```bash
-npm install
+npm start          # Start the server
+npm run dev        # Development mode with auto-reload
+npm test           # Run test suite
 ```
 
-2. **Configure environment variables:**
+## 🔗 API Endpoints
 
-Create a `.env` file in the project root:
-```bash
-METAAPI_TOKEN=your_metaapi_token_here
-```
+- `http://localhost:3333/health` - Health check
+- `http://localhost:3333/sse` - SSE connection for MCP clients
+- `http://localhost:3333/message/:sessionId` - JSON-RPC messages
 
-You can get your MetaAPI token from: https://app.metaapi.cloud/
-
-3. **Verify MetaTrader accounts:**
-
-Make sure you have at least one MetaTrader account provisioned in MetaAPI. You'll need the account ID(s) to use with the tools.
-
-## Usage
-
-### Running the Server
-
-**Start the HTTP/SSE server:**
-```bash
-npm start
-# or
-./start_server.sh
-```
-
-The server will start on port 3333 by default. You'll see:
-```
-[INFO] MetaAPI MCP Server running on http://localhost:3333
-[INFO] SSE endpoint: http://localhost:3333/sse
-[INFO] Health check: http://localhost:3333/health
-```
-
-**Custom port:**
-```bash
-PORT=8080 npm start
-```
-
-**Development mode with auto-reload:**
-```bash
-npm run dev
-```
-
-**Test the server:**
-```bash
-# Check health
-curl http://localhost:3333/health
-
-# Run test suite
-node test_client.js
-```
-
-### Connecting from MCP Clients
-
-#### Claude Desktop Configuration
-
-Add to your Claude Desktop configuration file:
-
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "metaapi": {
-      "url": "http://localhost:3333/sse"
-    }
-  }
-}
-```
-
-**Note:** Make sure to start the server before launching Claude Desktop.
-
-#### Programmatic MCP Client
-
-```javascript
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-
-const transport = new SSEClientTransport(
-    new URL('http://localhost:3333/sse')
-);
-
-const client = new Client(
-    { name: 'my-client', version: '1.0.0' },
-    { capabilities: {} }
-);
-
-await client.connect(transport);
-
-// Use the client
-const tools = await client.listTools();
-console.log('Available tools:', tools.tools);
-
-await client.close();
-```
-
-## Available Tools
-
-### Account Management
-
-#### list_accounts
-Lists all provisioned MetaTrader accounts.
-```
-No parameters required
-```
-
-#### get_account_state
-Get comprehensive account state including balance, equity, positions, and orders.
-```json
-{
-  "accountId": "your-account-id"
-}
-```
-
-#### get_account_information
-Get detailed account information.
-```json
-{
-  "accountId": "your-account-id"
-}
-```
-
-### Trading Operations
-
-#### place_market_order
-Place a market order (buy/sell at current price).
-```json
-{
-  "accountId": "your-account-id",
-  "symbol": "EURUSD",
-  "side": "buy",
-  "volume": 0.01,
-  "stopLoss": 1.0950,
-  "takeProfit": 1.1050,
-  "comment": "Optional comment"
-}
-```
-
-#### place_limit_order
-Place a pending limit order.
-```json
-{
-  "accountId": "your-account-id",
-  "symbol": "GBPUSD",
-  "side": "buy",
-  "volume": 0.1,
-  "openPrice": 1.2500,
-  "stopLoss": 1.2400,
-  "takeProfit": 1.2600
-}
-```
-
-#### close_position
-Close an open position.
-```json
-{
-  "accountId": "your-account-id",
-  "positionId": "position-id"
-}
-```
-
-#### modify_position
-Modify stop loss and take profit of a position.
-```json
-{
-  "accountId": "your-account-id",
-  "positionId": "position-id",
-  "stopLoss": 1.0950,
-  "takeProfit": 1.1050
-}
-```
-
-#### cancel_order
-Cancel a pending order.
-```json
-{
-  "accountId": "your-account-id",
-  "orderId": "order-id"
-}
-```
-
-### Market Data
-
-#### get_symbol_price
-Get current bid/ask prices for a symbol.
-```json
-{
-  "accountId": "your-account-id",
-  "symbol": "EURUSD"
-}
-```
-
-#### calculate_margin
-Calculate margin required for a trade.
-```json
-{
-  "accountId": "your-account-id",
-  "symbol": "GBPUSD",
-  "type": "ORDER_TYPE_BUY",
-  "volume": 0.1,
-  "openPrice": 1.2500
-}
-```
-
-#### get_server_time
-Get the broker server time.
-```json
-{
-  "accountId": "your-account-id"
-}
-```
-
-### History & Positions
-
-#### get_positions
-Get all open positions.
-```json
-{
-  "accountId": "your-account-id"
-}
-```
-
-#### get_orders
-Get all pending orders.
-```json
-{
-  "accountId": "your-account-id"
-}
-```
-
-#### get_history_orders
-Get historical orders within a time range.
-```json
-{
-  "accountId": "your-account-id",
-  "startTime": "2025-01-01T00:00:00Z",
-  "endTime": "2025-01-31T23:59:59Z"
-}
-```
-*Note: If times are omitted, defaults to last 90 days.*
-
-#### get_deals
-Get deal history within a time range.
-```json
-{
-  "accountId": "your-account-id",
-  "startTime": "2025-01-01T00:00:00Z",
-  "endTime": "2025-01-31T23:59:59Z"
-}
-```
-
-### Streaming
-
-#### subscribe_price
-Subscribe to real-time price updates for a symbol.
-```json
-{
-  "accountId": "your-account-id",
-  "symbol": "EURUSD"
-}
-```
-*Note: Price updates are logged to stderr. In production, this would stream via SSE.*
-
-## Architecture & Design Principles
-
-### Connection Management
-- **Connection Reuse**: RPC connections are cached and reused across tool calls for performance
-- **Auto-deployment**: Accounts are automatically deployed if not already deployed
-- **Synchronization**: Connections wait for terminal synchronization before allowing operations
-
-### Error Handling
-- MetaAPI errors are mapped to user-friendly messages
-- Common errors (market closed, insufficient funds, etc.) are clearly identified
-- All errors include both a message and error code
-
-### Trading Safety
-- **Idempotency**: Market orders use client-generated `clientOrderId` to prevent duplicate fills
-- **Validation**: Parameters are validated before sending to MetaAPI
-- **Risk Management**: Tools for margin calculation and risk checks before trading
-
-### Logging
-- All logs go to stderr (MCP requirement)
-- Logs include request context: tool name, account ID, operation
-- Structured logging for easy monitoring
-
-### Performance Considerations
-- Connection pooling and reuse
-- Parallel requests where possible
-- Efficient resource caching
-
-## Security
-
-### Token Management
-- Token is loaded from environment variables
-- Token is never returned in tool results or logs
-- Use `.env` file for local development (git-ignored)
-
-### Best Practices
-- Never commit `.env` file to version control
-- Use separate tokens for development/production
-- Rotate tokens regularly
-- Monitor API usage in MetaAPI dashboard
-
-## Development
+## 🛠️ Development
 
 ### Project Structure
+
 ```
-.
+metaapi-mcp-server/
 ├── src/
-│   └── index.js          # Main MCP server implementation
-├── example.js            # Original MetaAPI example (reference)
-├── package.json          # Dependencies and scripts
-├── .env                  # Environment variables (create this)
-└── README.md            # This file
+│   ├── index.js              # Main server & MCP setup
+│   ├── config.js             # Configuration & MetaAPI client
+│   └── utils/
+│       ├── logger.js         # Logging utility
+│       ├── connection.js     # Connection management
+│       └── helpers.js        # Helper functions
+├── tests/                    # Test files
+├── scripts/                  # Utility scripts
+├── docs/                     # Documentation
+└── .env                      # Environment variables (create this)
 ```
-
-### Adding New Tools
-
-To add a new tool:
-
-1. Add tool definition in `ListToolsRequestSchema` handler
-2. Implement tool logic in `CallToolRequestSchema` handler
-3. Add error handling with user-friendly messages
-4. Test with various account states
 
 ### Testing
 
-Test individual tools using an MCP client or by running the server directly:
-
 ```bash
-# Start server
-npm start
+# Test basic functionality
+node tests/test_client.js
 
-# In another terminal, send MCP requests via stdin
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | npm start
+# Test all MCP features
+node tests/test_mcp_client.js
+
+# Test market data visualization
+node tests/test_candle_viz.js
 ```
 
-## Troubleshooting
+## 📚 Learn More
 
-### Common Issues
+- [MetaAPI Documentation](https://metaapi.cloud/docs/)
+- [Model Context Protocol](https://modelcontextprotocol.io/)
+- [MCP SDK Documentation](https://github.com/modelcontextprotocol/sdk)
 
-**"METAAPI_TOKEN environment variable is required"**
-- Create a `.env` file with your MetaAPI token
-- Or set the environment variable in your shell/MCP client config
+## ⚠️ Important Notes
 
-**"Account not deployed"**
+- **Demo Accounts**: Test with demo accounts before using real money
+- **API Limits**: MetaAPI has rate limits - see their documentation
+- **Security**: Keep your API token secure, never commit `.env` files
+- **Risk**: Trading involves risk - use proper risk management
+
+## 📄 License
+
+MIT
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read the contribution guidelines first.
+
+## 📞 Support
+
+- [MetaAPI Support](https://metaapi.cloud/docs/)
+- [MCP Documentation](https://modelcontextprotocol.io/)
+- Issues: Use GitHub Issues for bug reports
+
+---
+
+Made with ❤️ for AI-powered trading
 - The server will attempt to deploy accounts automatically
 - This may take a few minutes on first connection
 - Check account status in MetaAPI dashboard
