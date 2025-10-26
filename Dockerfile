@@ -1,6 +1,9 @@
 # Use official Node.js LTS image
 FROM node:20-alpine
 
+RUN apt-get update && apt-get install -y python3 make g++ \
+    && npm ci --only=production
+
 # Set working directory
 WORKDIR /app
 
