@@ -7,10 +7,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install build dependencies for native modules, then install npm packages and cleanup
-RUN apk add --no-cache --virtual .build-deps python3 make g++ \
-    && npm ci --only=production \
-    && apk del .build-deps
+# Install production dependencies only (no build tools needed for this package)
+RUN npm ci --only=production --ignore-scripts
 
 # Copy application source
 COPY src/ ./src/
