@@ -1,17 +1,16 @@
 # Use official Node.js LTS image
 FROM node:20-alpine
 
-RUN apt-get update && apt-get install -y python3 make g++ \
-    && npm ci --only=production
-
 # Set working directory
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies
-RUN npm ci --only=production
+# Install build dependencies for native modules, then install npm packages and cleanup
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+    && npm ci --only=production \
+    && apk del .build-deps
 
 # Copy application source
 COPY src/ ./src/
