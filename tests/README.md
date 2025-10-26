@@ -173,7 +173,7 @@ Example output:
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
-const SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3333';
+const SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000';
 const ACCOUNT_ID = process.env.ACCOUNT_ID || 'your-account-id';
 
 async function testFeature() {
@@ -245,7 +245,7 @@ Old test files are preserved in `archive/` for reference:
 ```
 Error: connect ECONNREFUSED
 ```
-→ Verify server is on port 3333 and accessible
+→ Verify server is on port 3000 and accessible
 
 **Tool errors:**
 ```

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "MetaAPI MCP": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:3000/sse?token=your_metaapi_token_here"
+      ]
+    }
+  }
+}

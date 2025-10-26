@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  metaapi-mcp:
+    build: .
+    container_name: metaapi-mcp-server
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      # Optional: Set default token here (or pass via URL)
+      # METAAPI_TOKEN: ${METAAPI_TOKEN}
+      PORT: 80
+      NODE_ENV: production
+    # Uncomment if using .env file
+    # env_file:
+    #   - .env
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

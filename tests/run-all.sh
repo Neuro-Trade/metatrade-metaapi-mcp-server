@@ -15,7 +15,7 @@ echo ""
 
 # Check if server is running
 echo "🔍 Checking if server is running..."
-if curl -s http://localhost:3333/health > /dev/null 2>&1; then
+if curl -s http://localhost:3000/health > /dev/null 2>&1; then
     echo "✅ Server is running"
     echo ""
 else

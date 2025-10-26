@@ -8,7 +8,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
-const SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3333';
+const SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000';
 
 async function testAccountTools() {
     console.log('🧪 Account Tools Test\n');

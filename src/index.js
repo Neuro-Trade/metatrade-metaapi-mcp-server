@@ -15,6 +15,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
+import { config } from './config.js';
 
 // Load environment variables
 dotenv.config();
@@ -31,31 +32,49 @@ const logger = {
     debug: (...args) => console.error('[DEBUG]', ...args),
 };
 
-// Initialize MetaApi client (reused across requests)
-const METAAPI_TOKEN = process.env.METAAPI_TOKEN || process.env.TOKEN;
-if (!METAAPI_TOKEN) {
-    logger.error('METAAPI_TOKEN environment variable is required');
-    process.exit(1);
-}
+// Default MetaAPI token (optional - can be overridden per session via URL query param)
+const DEFAULT_METAAPI_TOKEN = process.env.METAAPI_TOKEN || process.env.TOKEN;
 
-const metaApi = new MetaApi(METAAPI_TOKEN);
-logger.info('MetaAPI client initialized');
+// Store MetaAPI clients per session (each session can have its own token)
+const sessionMetaApiClients = new Map();
 
-// Connection cache to reuse RPC connections
+// Connection cache to reuse RPC connections (keyed by sessionId-accountId)
 const connectionCache = new Map();
 
 // Active price subscriptions for streaming
 const priceSubscriptions = new Map();
 
 /**
+ * Get or create MetaAPI client for a session
+ */
+function getMetaApiClient(sessionId, token = null) {
+    if (sessionMetaApiClients.has(sessionId)) {
+        return sessionMetaApiClients.get(sessionId);
+    }
+
+    const metaApiToken = token || DEFAULT_METAAPI_TOKEN;
+    if (!metaApiToken) {
+        throw new Error('METAAPI_TOKEN is required. Pass it via URL query parameter (?token=xxx) or set METAAPI_TOKEN environment variable');
+    }
+
+    const metaApi = new MetaApi(metaApiToken);
+    sessionMetaApiClients.set(sessionId, metaApi);
+    logger.info(`MetaAPI client initialized for session ${sessionId}`);
+    return metaApi;
+}
+
+/**
  * Get or create a cached RPC connection for an account
  */
-async function getConnection(accountId) {
-    if (connectionCache.has(accountId)) {
-        return connectionCache.get(accountId);
+async function getConnection(accountId, sessionId) {
+    const cacheKey = `${sessionId}-${accountId}`;
+
+    if (connectionCache.has(cacheKey)) {
+        return connectionCache.get(cacheKey);
     }
 
     try {
+        const metaApi = getMetaApiClient(sessionId);
         const account = await metaApi.metatraderAccountApi.getAccount(accountId);
 
         // Check if account is deployed
@@ -74,7 +93,7 @@ async function getConnection(accountId) {
         logger.info(`Waiting for account ${accountId} to synchronize...`);
         await connection.waitSynchronized();
 
-        connectionCache.set(accountId, { account, connection });
+        connectionCache.set(cacheKey, { account, connection });
         return { account, connection };
     } catch (error) {
         logger.error(`Failed to get connection for account ${accountId}:`, error.message);
@@ -114,7 +133,7 @@ function generateClientOrderId(symbol, side) {
 }
 
 // Function to create and configure a new MCP server instance
-function createMCPServer() {
+function createMCPServer(sessionId) {
     const newServer = new Server(
         {
             name: 'metaapi-mcp-server',
@@ -128,6 +147,9 @@ function createMCPServer() {
             },
         }
     );
+
+    // Get the MetaAPI client for this session
+    const metaApi = getMetaApiClient(sessionId);
 
     // List all available tools
     newServer.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -946,7 +968,7 @@ function createMCPServer() {
                 }
 
                 case 'get_account_state': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const [accountInfo, positions, orders] = await Promise.all([
                         connection.getAccountInformation(),
                         connection.getPositions(),
@@ -977,7 +999,7 @@ function createMCPServer() {
                 }
 
                 case 'get_account_information': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const accountInfo = await connection.getAccountInformation();
                     return {
                         content: [
@@ -991,7 +1013,7 @@ function createMCPServer() {
 
                 // Trading operations
                 case 'place_market_order': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     // Don't use clientId - broker validation is too strict
 
                     const tradeOptions = {
@@ -1037,7 +1059,7 @@ function createMCPServer() {
                 }
 
                 case 'place_limit_order': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const clientId = generateClientOrderId(args.symbol, args.side);
 
                     const tradeOptions = {
@@ -1083,7 +1105,7 @@ function createMCPServer() {
                 }
 
                 case 'close_position': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const result = await connection.closePosition(args.positionId);
                     return {
                         content: [
@@ -1100,7 +1122,7 @@ function createMCPServer() {
                 }
 
                 case 'modify_position': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const result = await connection.modifyPosition(
                         args.positionId,
                         args.stopLoss,
@@ -1121,7 +1143,7 @@ function createMCPServer() {
                 }
 
                 case 'cancel_order': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const result = await connection.cancelOrder(args.orderId);
                     return {
                         content: [
@@ -1139,7 +1161,7 @@ function createMCPServer() {
 
                 // Market data
                 case 'get_symbol_price': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const price = await connection.getSymbolPrice(args.symbol);
                     return {
                         content: [
@@ -1152,7 +1174,7 @@ function createMCPServer() {
                 }
 
                 case 'calculate_margin': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const margin = await connection.calculateMargin({
                         symbol: args.symbol,
                         type: args.type,
@@ -1170,7 +1192,7 @@ function createMCPServer() {
                 }
 
                 case 'get_server_time': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const serverTime = await connection.getServerTime();
                     return {
                         content: [
@@ -1187,7 +1209,7 @@ function createMCPServer() {
 
                 // History
                 case 'get_positions': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const positions = await connection.getPositions();
                     return {
                         content: [
@@ -1200,7 +1222,7 @@ function createMCPServer() {
                 }
 
                 case 'get_orders': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const orders = await connection.getOrders();
                     return {
                         content: [
@@ -1213,7 +1235,7 @@ function createMCPServer() {
                 }
 
                 case 'get_history_orders': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const startTime = args.startTime
                         ? new Date(args.startTime)
                         : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
@@ -1231,7 +1253,7 @@ function createMCPServer() {
                 }
 
                 case 'get_deals': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const startTime = args.startTime
                         ? new Date(args.startTime)
                         : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
@@ -1250,7 +1272,7 @@ function createMCPServer() {
 
                 // Streaming
                 case 'subscribe_price': {
-                    const { account } = await getConnection(args.accountId);
+                    const { account } = await getConnection(args.accountId, sessionId);
                     const streamingConnection = account.getStreamingConnection();
                     await streamingConnection.connect();
 
@@ -1282,7 +1304,7 @@ function createMCPServer() {
 
                 // Additional trading methods
                 case 'get_position': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const position = await connection.getPosition(args.positionId);
                     return {
                         content: [
@@ -1295,7 +1317,7 @@ function createMCPServer() {
                 }
 
                 case 'get_order': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const order = await connection.getOrder(args.orderId);
                     return {
                         content: [
@@ -1308,7 +1330,7 @@ function createMCPServer() {
                 }
 
                 case 'get_symbols': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const symbols = await connection.getSymbols();
                     return {
                         content: [
@@ -1321,7 +1343,7 @@ function createMCPServer() {
                 }
 
                 case 'get_symbol_specification': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const spec = await connection.getSymbolSpecification(args.symbol);
                     return {
                         content: [
@@ -1334,7 +1356,7 @@ function createMCPServer() {
                 }
 
                 case 'create_stop_buy_order': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     // Don't use clientId - broker validation is too strict
                     const result = await connection.createStopBuyOrder(
                         args.symbol,
@@ -1362,7 +1384,7 @@ function createMCPServer() {
                 }
 
                 case 'create_stop_sell_order': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     // Don't use clientId - broker validation is too strict
                     const result = await connection.createStopSellOrder(
                         args.symbol,
@@ -1390,7 +1412,7 @@ function createMCPServer() {
                 }
 
                 case 'modify_order': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const result = await connection.modifyOrder(
                         args.orderId,
                         args.openPrice,
@@ -1413,7 +1435,7 @@ function createMCPServer() {
 
                 // Phase 2: Historical Market Data
                 case 'get_candles': {
-                    const { account } = await getConnection(args.accountId);
+                    const { account } = await getConnection(args.accountId, sessionId);
                     const startTime = args.startTime ? new Date(args.startTime) : undefined;
                     const candles = await account.getHistoricalCandles(
                         args.symbol,
@@ -1437,7 +1459,7 @@ function createMCPServer() {
                 }
 
                 case 'get_ticks': {
-                    const { account } = await getConnection(args.accountId);
+                    const { account } = await getConnection(args.accountId, sessionId);
                     // Default to very recent time (last hour) for better historical tick availability
                     const startTime = args.startTime
                         ? new Date(args.startTime)
@@ -1474,7 +1496,7 @@ function createMCPServer() {
                 }
 
                 case 'get_history_orders_by_ticket': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const orders = await connection.getHistoryOrdersByTicket(args.ticket);
                     return {
                         content: [
@@ -1491,7 +1513,7 @@ function createMCPServer() {
                 }
 
                 case 'get_deals_by_ticket': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const deals = await connection.getDealsByTicket(args.ticket);
                     return {
                         content: [
@@ -1508,7 +1530,7 @@ function createMCPServer() {
                 }
 
                 case 'get_terminal_state': {
-                    const { account, connection } = await getConnection(args.accountId);
+                    const { account, connection } = await getConnection(args.accountId, sessionId);
 
                     // Get all terminal state components
                     const [accountInfo, positions, orders, symbols] = await Promise.all([
@@ -1603,7 +1625,7 @@ function createMCPServer() {
                 }
 
                 case 'create_market_order_with_trailing_sl': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
 
                     // Generate client ID for idempotency
                     const clientId = args.clientId || generateClientOrderId(
@@ -1660,7 +1682,7 @@ function createMCPServer() {
                 }
 
                 case 'get_server_time': {
-                    const { connection } = await getConnection(args.accountId);
+                    const { connection } = await getConnection(args.accountId, sessionId);
                     const serverTime = await connection.getServerTime();
 
                     return {
@@ -1777,7 +1799,7 @@ function createMCPServer() {
             const accountMatch = uri.match(/^metaapi:\/\/accounts\/([^/]+)$/);
             if (accountMatch) {
                 const accountId = accountMatch[1];
-                const { connection } = await getConnection(accountId);
+                const { connection } = await getConnection(accountId, sessionId);
                 const accountInfo = await connection.getAccountInformation();
 
                 return {
@@ -1794,7 +1816,7 @@ function createMCPServer() {
             const positionsMatch = uri.match(/^metaapi:\/\/accounts\/([^/]+)\/positions$/);
             if (positionsMatch) {
                 const accountId = positionsMatch[1];
-                const { connection } = await getConnection(accountId);
+                const { connection } = await getConnection(accountId, sessionId);
                 const positions = await connection.getPositions();
 
                 return {
@@ -1811,7 +1833,7 @@ function createMCPServer() {
             const ordersMatch = uri.match(/^metaapi:\/\/accounts\/([^/]+)\/orders$/);
             if (ordersMatch) {
                 const accountId = ordersMatch[1];
-                const { connection } = await getConnection(accountId);
+                const { connection } = await getConnection(accountId, sessionId);
                 const orders = await connection.getOrders();
 
                 return {
@@ -1992,7 +2014,7 @@ Use the get_deals and get_history_orders tools to gather this information.`,
 // Start the server
 async function main() {
     const app = express();
-    const PORT = process.env.PORT || 3333;
+    const PORT = config.port;
 
     // Enable CORS for all origins
     app.use(cors());
@@ -2016,11 +2038,26 @@ async function main() {
             // Generate a session ID first
             const sessionId = randomUUID();
 
+            // Extract token from query parameters
+            const token = req.query.token;
+
+            // Initialize MetaAPI client for this session
+            try {
+                getMetaApiClient(sessionId, token);
+                logger.info(`Token ${token ? 'provided via URL' : 'using default from environment'} for session ${sessionId}`);
+            } catch (error) {
+                logger.error('Failed to initialize MetaAPI client:', error.message);
+                return res.status(400).json({
+                    error: 'Invalid or missing METAAPI_TOKEN',
+                    message: error.message
+                });
+            }
+
             // Create new transport with session-specific POST endpoint
             const transport = new SSEServerTransport(`/message/${sessionId}`, res);
 
             // Create and connect new server instance
-            const server = createMCPServer();
+            const server = createMCPServer(sessionId);
             await server.connect(transport); // This calls transport.start() automatically
 
             // Store transport by session ID for routing POST messages
@@ -2031,6 +2068,14 @@ async function main() {
             transport.onclose = () => {
                 logger.info(`SSE connection closed: ${sessionId}`);
                 transports.delete(sessionId);
+                sessionMetaApiClients.delete(sessionId);
+
+                // Clean up connections for this session
+                for (const [key, _] of connectionCache.entries()) {
+                    if (key.startsWith(`${sessionId}-`)) {
+                        connectionCache.delete(key);
+                    }
+                }
             };
         } catch (error) {
             logger.error('SSE connection error:', error);

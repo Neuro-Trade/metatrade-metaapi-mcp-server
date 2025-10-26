@@ -8,7 +8,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
-const SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3333';
+const SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000';
 const ACCOUNT_ID = process.env.ACCOUNT_ID || 'b7320f60-ef3c-4589-a692-c6b39f76c313';
 
 async function testMarketDataTools() {
