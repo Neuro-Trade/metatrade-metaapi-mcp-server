@@ -1092,6 +1092,10 @@ METAAPI_TOKEN=your_token_here
 # Optional: Server port (default: 3000)
 PORT=3000
 
+# Optional: Filter allowed MetaAPI accounts (comma-separated account IDs)
+# If not set or empty, all accounts will be accessible
+ALLOWED_ACCOUNTS=account_id_1,account_id_2,account_id_3
+
 # Optional: Log level (default: info)
 LOG_LEVEL=info
 ```
@@ -1132,6 +1136,35 @@ If you changed the server port:
   }
 }
 ```
+
+#### Account Filtering
+
+By default, all MetaAPI accounts associated with your token are accessible. To restrict access to specific accounts, use the `ALLOWED_ACCOUNTS` environment variable:
+
+```env
+# Only these account IDs will be accessible
+ALLOWED_ACCOUNTS=abc123def456,xyz789ghi012
+```
+
+**Benefits:**
+- **Security**: Limit access to production accounts only
+- **Multi-environment**: Separate demo and live trading accounts
+- **Team access**: Share different account sets with different team members
+
+**Example `.env` configurations:**
+
+```env
+# Production only
+ALLOWED_ACCOUNTS=prod_account_123
+
+# Demo and staging
+ALLOWED_ACCOUNTS=demo_account_456,staging_account_789
+
+# No filter (all accounts accessible)
+ALLOWED_ACCOUNTS=
+```
+
+When `ALLOWED_ACCOUNTS` is set, the `list_accounts` tool will only return the specified accounts. Attempts to access other accounts will fail.
 
 #### Multiple Servers
 

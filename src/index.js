@@ -132,6 +132,72 @@ function generateClientOrderId(symbol, side) {
     return `${side}_${symbol}_${timestamp}_${random}`;
 }
 
+/**
+ * Validate and truncate clientId and comment fields to meet broker limits
+ * MetaAPI/MT4/MT5 has combined limits:
+ * - Combined length of clientId + comment must be <= 26 characters
+ * - If only comment is used (no clientId), max is ~31 characters
+ * 
+ * @param {string|undefined} comment - Order comment
+ * @param {string|undefined} clientId - Client order ID
+ * @returns {object} Object with validated comment and clientId
+ */
+function validateOrderFields(comment, clientId) {
+    const COMBINED_LIMIT = 26;
+    const COMMENT_ONLY_LIMIT = 31;
+
+    let validatedComment = comment?.trim() || '';
+    let validatedClientId = clientId?.trim() || '';
+
+    // If both are empty, return empty object
+    if (!validatedComment && !validatedClientId) {
+        return {};
+    }
+
+    // If only comment is provided
+    if (validatedComment && !validatedClientId) {
+        if (validatedComment.length > COMMENT_ONLY_LIMIT) {
+            validatedComment = validatedComment.substring(0, COMMENT_ONLY_LIMIT);
+            logger.warn(`Comment truncated to ${COMMENT_ONLY_LIMIT} characters: "${validatedComment}"`);
+        }
+        return { comment: validatedComment };
+    }
+
+    // If only clientId is provided
+    if (validatedClientId && !validatedComment) {
+        if (validatedClientId.length > COMBINED_LIMIT) {
+            validatedClientId = validatedClientId.substring(0, COMBINED_LIMIT);
+            logger.warn(`ClientId truncated to ${COMBINED_LIMIT} characters: "${validatedClientId}"`);
+        }
+        return { clientId: validatedClientId };
+    }
+
+    // Both comment and clientId are provided - enforce combined limit
+    const totalLength = validatedComment.length + validatedClientId.length;
+
+    if (totalLength <= COMBINED_LIMIT) {
+        return { comment: validatedComment, clientId: validatedClientId };
+    }
+
+    // Need to truncate - prioritize clientId, then comment
+    // Strategy: Keep clientId as-is if it fits in half, otherwise split evenly
+    const halfLimit = Math.floor(COMBINED_LIMIT / 2);
+
+    if (validatedClientId.length <= halfLimit) {
+        // ClientId fits in half, give rest to comment
+        const commentLimit = COMBINED_LIMIT - validatedClientId.length;
+        validatedComment = validatedComment.substring(0, commentLimit);
+        logger.warn(`Fields truncated - clientId: ${validatedClientId.length} chars, comment truncated to ${commentLimit} chars`);
+    } else {
+        // Split evenly
+        validatedClientId = validatedClientId.substring(0, halfLimit);
+        validatedComment = validatedComment.substring(0, COMBINED_LIMIT - halfLimit);
+        logger.warn(`Both fields truncated to fit ${COMBINED_LIMIT} char limit - clientId: ${halfLimit}, comment: ${COMBINED_LIMIT - halfLimit}`);
+    }
+
+    return { comment: validatedComment, clientId: validatedClientId };
+}
+
 // Function to create and configure a new MCP server instance
 function createMCPServer(sessionId) {
     const newServer = new Server(
@@ -270,7 +336,7 @@ function createMCPServer(sessionId) {
                             },
                             comment: {
                                 type: 'string',
-                                description: 'Optional order comment',
+                                description: 'Optional order comment (max of 30 characters)',
                             },
                         },
                         required: ['accountId', 'symbol', 'side', 'volume', 'openPrice'],
@@ -944,24 +1010,32 @@ function createMCPServer(sessionId) {
             switch (name) {
                 // Account management
                 case 'list_accounts': {
+                    let allowed_accounts = process.env.ALLOWED_ACCOUNTS || '';
+                    allowed_accounts = allowed_accounts.split(',').map(acc => acc.trim());
                     // Using classic pagination to get all accounts
                     const response = await metaApi.metatraderAccountApi.getAccountsWithClassicPagination();
                     // The response is paginated - extract the actual accounts array
                     const accounts = response.items || [];
+
+                    // Filter accounts based on ALLOWED_ACCOUNTS env variable
+                    const filteredAccounts = accounts
+                        .filter(acc => allowed_accounts.length === 0 || allowed_accounts[0] === '' || allowed_accounts.includes(acc.id))
+                        .map(acc => ({
+                            id: acc.id,
+                            name: acc.name,
+                            login: acc.login,
+                            server: acc.server,
+                            platform: acc.platform,
+                            type: acc.type,
+                            state: acc.state,
+                            connectionStatus: acc.connectionStatus,
+                        }));
+
                     return {
                         content: [
                             {
                                 type: 'text',
-                                text: JSON.stringify(accounts.map(acc => ({
-                                    id: acc.id,
-                                    name: acc.name,
-                                    login: acc.login,
-                                    server: acc.server,
-                                    platform: acc.platform,
-                                    type: acc.type,
-                                    state: acc.state,
-                                    connectionStatus: acc.connectionStatus,
-                                })), null, 2),
+                                text: JSON.stringify(filteredAccounts, null, 2),
                             },
                         ],
                     };
@@ -1014,11 +1088,11 @@ function createMCPServer(sessionId) {
                 // Trading operations
                 case 'place_market_order': {
                     const { connection } = await getConnection(args.accountId, sessionId);
-                    // Don't use clientId - broker validation is too strict
 
-                    const tradeOptions = {
-                        comment: args.comment || `Market ${args.side}`,
-                    };
+                    // Validate and truncate fields if needed
+                    const validatedFields = validateOrderFields(args.comment, args.clientId);
+
+                    const tradeOptions = { ...validatedFields };
 
                     if (args.stopLoss) tradeOptions.stopLoss = args.stopLoss;
                     if (args.takeProfit) tradeOptions.takeProfit = args.takeProfit;
@@ -1040,9 +1114,7 @@ function createMCPServer(sessionId) {
                             tradeOptions.takeProfit,
                             tradeOptions
                         );
-                    }
-
-                    return {
+                    } return {
                         content: [
                             {
                                 type: 'text',
@@ -1060,12 +1132,9 @@ function createMCPServer(sessionId) {
 
                 case 'place_limit_order': {
                     const { connection } = await getConnection(args.accountId, sessionId);
-                    const clientId = generateClientOrderId(args.symbol, args.side);
 
-                    const tradeOptions = {
-                        comment: args.comment || `Limit ${args.side}`,
-                        clientId,
-                    };
+                    // Validate and truncate fields if needed
+                    const validatedFields = validateOrderFields(args.comment, args.clientId);
 
                     let result;
                     if (args.side === 'buy') {
@@ -1075,7 +1144,7 @@ function createMCPServer(sessionId) {
                             args.openPrice,
                             args.stopLoss,
                             args.takeProfit,
-                            tradeOptions
+                            validatedFields
                         );
                     } else {
                         result = await connection.createLimitSellOrder(
@@ -1084,7 +1153,7 @@ function createMCPServer(sessionId) {
                             args.openPrice,
                             args.stopLoss,
                             args.takeProfit,
-                            tradeOptions
+                            validatedFields
                         );
                     }
 
@@ -1097,7 +1166,7 @@ function createMCPServer(sessionId) {
                                     orderId: result.orderId,
                                     stringCode: result.stringCode,
                                     message: result.message,
-                                    clientOrderId: clientId,
+                                    clientOrderId: validatedFields.clientId || null,
                                 }, null, 2),
                             },
                         ],
@@ -1357,16 +1426,17 @@ function createMCPServer(sessionId) {
 
                 case 'create_stop_buy_order': {
                     const { connection } = await getConnection(args.accountId, sessionId);
-                    // Don't use clientId - broker validation is too strict
+
+                    // Validate and truncate fields if needed
+                    const validatedFields = validateOrderFields(args.comment, args.clientId);
+
                     const result = await connection.createStopBuyOrder(
                         args.symbol,
                         args.volume,
                         args.openPrice,
                         args.stopLoss,
                         args.takeProfit,
-                        {
-                            comment: args.comment,
-                        }
+                        validatedFields
                     );
                     return {
                         content: [
@@ -1377,6 +1447,7 @@ function createMCPServer(sessionId) {
                                     orderId: result.orderId,
                                     stringCode: result.stringCode,
                                     message: result.message,
+                                    clientOrderId: validatedFields.clientId || null,
                                 }, null, 2),
                             },
                         ],
@@ -1385,16 +1456,17 @@ function createMCPServer(sessionId) {
 
                 case 'create_stop_sell_order': {
                     const { connection } = await getConnection(args.accountId, sessionId);
-                    // Don't use clientId - broker validation is too strict
+
+                    // Validate and truncate fields if needed
+                    const validatedFields = validateOrderFields(args.comment, args.clientId);
+
                     const result = await connection.createStopSellOrder(
                         args.symbol,
                         args.volume,
                         args.openPrice,
                         args.stopLoss,
                         args.takeProfit,
-                        {
-                            comment: args.comment,
-                        }
+                        validatedFields
                     );
                     return {
                         content: [
@@ -1405,6 +1477,7 @@ function createMCPServer(sessionId) {
                                     orderId: result.orderId,
                                     stringCode: result.stringCode,
                                     message: result.message,
+                                    clientOrderId: validatedFields.clientId || null,
                                 }, null, 2),
                             },
                         ],
@@ -1627,11 +1700,8 @@ function createMCPServer(sessionId) {
                 case 'create_market_order_with_trailing_sl': {
                     const { connection } = await getConnection(args.accountId, sessionId);
 
-                    // Generate client ID for idempotency
-                    const clientId = args.clientId || generateClientOrderId(
-                        args.symbol,
-                        args.actionType === 'ORDER_TYPE_BUY' ? 'buy' : 'sell'
-                    );
+                    // Validate and truncate fields if needed
+                    const validatedFields = validateOrderFields(args.comment, args.clientId);
 
                     // Build trailing stop loss configuration
                     const trailingStopLoss = {};
@@ -1653,9 +1723,8 @@ function createMCPServer(sessionId) {
 
                     // Build options object
                     const options = {
-                        comment: args.comment || 'Trailing SL order',
-                        clientId,
                         trailingStopLoss,
+                        ...validatedFields,
                     };
 
                     // Create market order with trailing SL
@@ -1673,7 +1742,7 @@ function createMCPServer(sessionId) {
                                     positionId: result.positionId,
                                     stringCode: result.stringCode,
                                     message: result.message,
-                                    clientOrderId: clientId,
+                                    clientOrderId: validatedFields.clientId || null,
                                     trailingStopLoss,
                                 }, null, 2),
                             },
