@@ -38,6 +38,9 @@ const DEFAULT_METAAPI_TOKEN = process.env.METAAPI_TOKEN || process.env.TOKEN;
 // Store MetaAPI clients per session (each session can have its own token)
 const sessionMetaApiClients = new Map();
 
+// Store session data including allowed accounts
+const sessionData = new Map();
+
 // Connection cache to reuse RPC connections (keyed by sessionId-accountId)
 const connectionCache = new Map();
 
@@ -1010,16 +1013,18 @@ function createMCPServer(sessionId) {
             switch (name) {
                 // Account management
                 case 'list_accounts': {
-                    let allowed_accounts = process.env.ALLOWED_ACCOUNTS || '';
-                    allowed_accounts = allowed_accounts.split(',').map(acc => acc.trim());
+                    // Get allowed accounts from session data
+                    const session = sessionData.get(sessionId) || {};
+                    const allowed_accounts = session.allowedAccounts || [];
+
                     // Using classic pagination to get all accounts
                     const response = await metaApi.metatraderAccountApi.getAccountsWithClassicPagination();
                     // The response is paginated - extract the actual accounts array
                     const accounts = response.items || [];
 
-                    // Filter accounts based on ALLOWED_ACCOUNTS env variable
+                    // Filter accounts based on allowed_accounts from URL parameter
                     const filteredAccounts = accounts
-                        .filter(acc => allowed_accounts.length === 0 || allowed_accounts[0] === '' || allowed_accounts.includes(acc.id))
+                        .filter(acc => allowed_accounts.length === 0 || allowed_accounts.includes(acc.id))
                         .map(acc => ({
                             id: acc.id,
                             name: acc.name,
@@ -2107,13 +2112,23 @@ async function main() {
             // Generate a session ID first
             const sessionId = randomUUID();
 
-            // Extract token from query parameters
+            // Extract token and allowed accounts from query parameters
             const token = req.query.token;
+            const allowedAccounts = req.query.accounts || req.query.allowed_accounts || '';
+
+            // Store session data
+            sessionData.set(sessionId, {
+                token,
+                allowedAccounts: allowedAccounts.split(',').map(acc => acc.trim()).filter(acc => acc.length > 0)
+            });
 
             // Initialize MetaAPI client for this session
             try {
                 getMetaApiClient(sessionId, token);
                 logger.info(`Token ${token ? 'provided via URL' : 'using default from environment'} for session ${sessionId}`);
+                if (allowedAccounts) {
+                    logger.info(`Allowed accounts for session ${sessionId}: ${allowedAccounts}`);
+                }
             } catch (error) {
                 logger.error('Failed to initialize MetaAPI client:', error.message);
                 return res.status(400).json({
@@ -2138,6 +2153,7 @@ async function main() {
                 logger.info(`SSE connection closed: ${sessionId}`);
                 transports.delete(sessionId);
                 sessionMetaApiClients.delete(sessionId);
+                sessionData.delete(sessionId);
 
                 // Clean up connections for this session
                 for (const [key, _] of connectionCache.entries()) {

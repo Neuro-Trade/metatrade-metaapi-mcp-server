@@ -1092,10 +1092,6 @@ METAAPI_TOKEN=your_token_here
 # Optional: Server port (default: 3000)
 PORT=3000
 
-# Optional: Filter allowed MetaAPI accounts (comma-separated account IDs)
-# If not set or empty, all accounts will be accessible
-ALLOWED_ACCOUNTS=account_id_1,account_id_2,account_id_3
-
 # Optional: Log level (default: info)
 LOG_LEVEL=info
 ```
@@ -1139,36 +1135,50 @@ If you changed the server port:
 
 #### Account Filtering
 
-By default, all MetaAPI accounts associated with your token are accessible. To restrict access to specific accounts, use the `ALLOWED_ACCOUNTS` environment variable:
+By default, all MetaAPI accounts associated with your token are accessible. To restrict access to specific accounts, pass the `accounts` parameter in the SSE URL:
 
-```env
-# Only these account IDs will be accessible
-ALLOWED_ACCOUNTS=abc123def456,xyz789ghi012
+```json
+{
+  "mcpServers": {
+    "MetaAPI MCP": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:3000/sse?token=your_token&accounts=account_id_1,account_id_2"
+      ]
+    }
+  }
+}
 ```
 
 **Benefits:**
 - **Security**: Limit access to production accounts only
-- **Multi-environment**: Separate demo and live trading accounts
+- **Multi-environment**: Create separate Claude configurations for demo and live accounts
 - **Team access**: Share different account sets with different team members
+- **Flexibility**: Change allowed accounts without restarting the server
 
-**Example `.env` configurations:**
+**Example configurations:**
 
-```env
-# Production only
-ALLOWED_ACCOUNTS=prod_account_123
-
-# Demo and staging
-ALLOWED_ACCOUNTS=demo_account_456,staging_account_789
-
-# No filter (all accounts accessible)
-ALLOWED_ACCOUNTS=
+Production only:
+```json
+"http://localhost:3000/sse?token=xxx&accounts=prod_account_123"
 ```
 
-When `ALLOWED_ACCOUNTS` is set, the `list_accounts` tool will only return the specified accounts. Attempts to access other accounts will fail.
+Demo and staging:
+```json
+"http://localhost:3000/sse?token=xxx&accounts=demo_456,staging_789"
+```
+
+No filter (all accounts accessible):
+```json
+"http://localhost:3000/sse?token=xxx"
+```
+
+When `accounts` parameter is set, the `list_accounts` tool will only return the specified accounts. Attempts to access other accounts will still work but won't appear in the list.
 
 #### Multiple Servers
 
-You can run multiple instances on different ports:
+You can run multiple instances or use the same server with different account filters:
 
 ```json
 {
@@ -1177,19 +1187,28 @@ You can run multiple instances on different ports:
       "command": "npx",
       "args": [
         "mcp-remote",
-        "http://localhost:3000/sse"
+        "http://localhost:3000/sse?token=your_token&accounts=prod_account_123"
       ]
     },
     "MetaAPI Demo": {
       "command": "npx",
       "args": [
         "mcp-remote",
-        "http://localhost:3334/sse"
+        "http://localhost:3000/sse?token=your_token&accounts=demo_account_456,demo_account_789"
+      ]
+    },
+    "MetaAPI All Accounts": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:3000/sse?token=your_token"
       ]
     }
   }
 }
 ```
+
+This allows you to switch between different account sets in Claude without changing server configuration.
 
 ---
 
